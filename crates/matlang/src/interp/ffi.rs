@@ -497,7 +497,7 @@ mod imp {
                         Some(t) => t,
                         None => return Err(LangError::new(format!("libpointer: unknown data type '{dt}'"), 0)),
                     };
-                    let init = v.get(1).cloned().unwrap_or_else(|| {
+                    let init = v.get(1).cloned().unwrap_or({
                         // `libpointer('doublePtr')` — MATLAB preallocates
                         // with a zero value.
                         Value::Num(0.0)

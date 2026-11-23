@@ -5,9 +5,14 @@ fn main() {
     println!("cargo:rerun-if-changed=../../assets/app-icon/matcraft.ico");
     println!("cargo:rerun-if-env-changed=MATCRAFT_REQUIRE_WINRES");
     println!("cargo:rerun-if-env-changed=MATCRAFT_BUILD_SHA");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
+    #[cfg(target_os = "windows")]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_windows_resources();
     }
+}
+
+#[cfg(target_os = "windows")]
+fn embed_windows_resources() {
     let mut res = winresource::WindowsResource::new();
     if std::path::Path::new("../../assets/app-icon/matcraft.ico").exists() {
         res.set_icon("../../assets/app-icon/matcraft.ico");

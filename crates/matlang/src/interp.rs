@@ -3252,7 +3252,7 @@ impl Session {
                             self.accessor_stack.push(key.clone());
                             let r = self.call_def(&key, &def, vec![Value::Object(o.clone()), v], 1, None);
                             self.accessor_stack.pop();
-                            return Ok(r?.into_iter().next().unwrap_or_else(|| Value::Object(o)));
+                            return Ok(r?.into_iter().next().unwrap_or(Value::Object(o)));
                         }
                     }
                     self.check_prop_access(&o, field, true)?;
@@ -7029,10 +7029,7 @@ impl Session {
                 let v = self.eval_args(args)?;
                 let func = v.first().cloned().ok_or_else(|| LangError::new("parfeval needs a function", 0))?;
                 let nout = v.get(1).and_then(|x| x.scalar().ok()).unwrap_or(1.0).max(1.0) as usize;
-                let mut argv: Vec<Value> = v.iter().skip(2).cloned().collect();
-                if argv.is_empty() {
-                    argv = Vec::new();
-                }
+                let argv: Vec<Value> = v.iter().skip(2).cloned().collect();
                 let outputs = self.call_feval_target(&func, argv, nout)?;
                 let mut props = StructArray::new();
                 if outputs.len() == 1 {
@@ -22131,8 +22128,8 @@ legend('sig'); grid on; saveas('{f}')"
     fn import_parses_and_records() {
         let mut s = Session::new();
         s.run("import casadi.*\nimport a.b.c").unwrap();
-        assert!(s.imports.contains(&"casadi.*".to_string()));
-        assert!(s.imports.contains(&"a.b.c".to_string()));
+        assert!(s.imports.iter().any(|entry| entry == "casadi.*"));
+        assert!(s.imports.iter().any(|entry| entry == "a.b.c"));
     }
 
     #[test]

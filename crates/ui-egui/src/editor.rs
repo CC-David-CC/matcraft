@@ -5,18 +5,27 @@ use std::collections::BTreeSet;
 
 /// What the editor pane asks the app to do.
 pub enum EditorCmd {
+    WorkspaceFile(crate::workspace_files::FileRequest),
     /// Evaluate the buffer in the session; `dir` joins the function search
     /// path first when the buffer came from a file. `path` is echoed like
     /// `run 'path'` so error links in the Command Window resolve to it.
     /// `as_file` runs a clean file-backed buffer through `run 'path'` so
     /// `dbstop` breakpoints can hit.
-    Run { source: String, dir: Option<std::path::PathBuf>, path: Option<String>, as_file: bool },
+    Run {
+        source: String,
+        dir: Option<std::path::PathBuf>,
+        path: Option<String>,
+        as_file: bool,
+    },
     /// Internal marker: the Run Selection button was clicked (resolved to a
     /// `Run` with the selected text once the editor's cursor range is known).
     RunSelection,
     /// A gutter click toggled the breakpoint on `line`; `set` = added —
     /// the app mirrors it into the session with `dbstop`/`dbclear`.
-    BpToggle { line: usize, set: bool },
+    BpToggle {
+        line: usize,
+        set: bool,
+    },
 }
 
 /// The Ctrl+F find/replace bar over the buffer.
@@ -43,6 +52,7 @@ pub struct Editor {
     pub status: String,
     /// Unsaved changes — the document tab shows `*` like MATLAB.
     pub dirty: bool,
+    pub(crate) workspace_files: bool,
     /// Set by the toolstrip's Run Selection; consumed on the next `ui` pass
     /// (the selection range only exists while the TextEdit is drawn).
     pub want_run_selection: bool,
@@ -114,6 +124,7 @@ impl Editor {
             text: "% MatCraft script\n".to_string(),
             status: String::new(),
             dirty: false,
+            workspace_files: false,
             want_run_selection: false,
             find: FindBar::default(),
             breakpoints: BTreeSet::new(),
@@ -249,7 +260,12 @@ impl Editor {
         ui.heading("Editor");
         ui.horizontal(|ui| {
             ui.label("file:");
-            ui.add(egui::TextEdit::singleline(&mut self.path).desired_width(f32::INFINITY).hint_text("(scratch buffer)"));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.path)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("(scratch buffer)")
+                    .interactive(!self.workspace_files),
+            );
         });
         ui.horizontal(|ui| {
             #[cfg(not(target_arch = "wasm32"))]
@@ -263,8 +279,21 @@ impl Editor {
                     self.save();
                 }
             }
+            if self.workspace_files {
+                use crate::workspace_files::FileRequest;
+                if ui.button("Open…").clicked() {
+                    cmds.push(EditorCmd::WorkspaceFile(FileRequest::Open));
+                }
+                if ui.button("Save").clicked() {
+                    cmds.push(EditorCmd::WorkspaceFile(FileRequest::Save));
+                }
+            }
             if ui.button("New").clicked() {
-                self.new_file();
+                if self.workspace_files {
+                    cmds.push(EditorCmd::WorkspaceFile(crate::workspace_files::FileRequest::New(None)));
+                } else {
+                    self.new_file();
+                }
             }
             if ui.button("Run").clicked() {
                 let dir = std::path::Path::new(&self.path).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf());

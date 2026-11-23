@@ -5,6 +5,7 @@
 //! engine's command registry — the UI is thin — and the control channel
 //! (`matcraft --control PORT`) reaches the same commands plus `ui.*` views.
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -21,6 +22,7 @@ mod history;
 mod repl;
 mod ribbon;
 mod workspace;
+mod workspace_files;
 
 use std::sync::mpsc::Receiver;
 
@@ -35,6 +37,7 @@ use history::HistCmd;
 use repl::Repl;
 use ribbon::{RibbonCmd, Tab as RibbonTab};
 use workspace::WsCmd;
+use workspace_files::FileRequest;
 
 /// Persisted desktop state — panel toggles, zoom, working directory — held
 /// in `config.toml` via `craft-settings` (atomic writes, a backup of the
@@ -234,6 +237,8 @@ pub struct MatApp {
     want_zoom: Option<f32>,
     /// Last seen interface zoom — saved with the layout on exit.
     last_zoom: f32,
+    workspace_files: bool,
+    workspace_request: Option<FileRequest>,
 }
 
 impl MatApp {
@@ -297,6 +302,8 @@ impl MatApp {
             settings_store: None,
             want_zoom: None,
             last_zoom: 1.0,
+            workspace_files: false,
+            workspace_request: None,
         };
         let version = match app.session.execute("engine.version", json!({})) {
             Ok(v) => v.get("version").and_then(Json::as_str).unwrap_or("?").to_string(),
@@ -342,6 +349,10 @@ impl MatApp {
 
     /// Open `path` in the editor — focuses an existing tab for the same file.
     fn open_editor(&mut self, path: &std::path::Path) {
+        if self.workspace_files {
+            self.workspace_request = Some(FileRequest::Open);
+            return;
+        }
         let canon = path.to_string_lossy().to_string();
         if let Some(i) = self.editors.iter().position(|e| e.path == canon && !canon.is_empty()) {
             self.raise_doc(Doc::Edit(i));
@@ -355,12 +366,24 @@ impl MatApp {
 
     /// A fresh scratch-editor tab ("New Script" / "Create Script").
     fn new_editor_tab(&mut self, text: Option<String>) {
+        if self.workspace_files {
+            self.workspace_request = Some(FileRequest::New(text));
+            return;
+        }
         let mut e = Editor::new();
         if let Some(t) = text {
             e.text = t;
         }
         self.editors.push(e);
         self.raise_doc(Doc::Edit(self.editors.len() - 1));
+    }
+
+    fn save_editor(&mut self) {
+        if self.workspace_files {
+            self.workspace_request = Some(FileRequest::Save);
+        } else if let Some(editor) = self.cur_editor_mut() {
+            editor.save();
+        }
     }
 
     /// Open `path` and jump to a 1-based line (error links, Find in Files).
@@ -753,12 +776,17 @@ impl MatApp {
                 return;
             }
         }
-        match &path {
+        self.eval_editor_source(source, path.as_deref());
+    }
+
+    fn eval_editor_source(&mut self, source: String, path: Option<&str>) -> Json {
+        match path {
             Some(p) => self.repl.push(&format!(">> run '{}'\n", p.replace('\'', "''"))),
             None => self.repl.push(">> run editor buffer\n"),
         }
         let out = self.exec_command("eval.line", json!({"code": source}));
         self.print_cmd_out(&out);
+        out
     }
 
     /// The currently displayed figure. A plain 2-D axes gets MATLAB-style
@@ -1289,6 +1317,11 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 impl eframe::App for MatApp {
+    #[cfg(target_arch = "wasm32")]
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
     /// Non-painting work: control requests, screenshot replies, figure
     /// texture refresh. Runs before `ui`, also while the window is hidden.
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -1341,10 +1374,11 @@ impl eframe::App for MatApp {
                 self.open_editor(&p);
             }
         }
+        if _open_doc && self.workspace_files {
+            self.workspace_request = Some(FileRequest::Open);
+        }
         if save_doc {
-            if let Some(e) = self.cur_editor_mut() {
-                e.save();
-            }
+            self.save_editor();
         }
         if run_doc {
             if let Some(e) = self.cur_editor() {
@@ -1363,7 +1397,7 @@ impl eframe::App for MatApp {
             self.find_files.open = true;
             self.find_files.want_focus = true;
         }
-        if close_doc {
+        if close_doc && (!self.workspace_files || matches!(self.docs.get(self.doc_sel), Some(Doc::Fig(_)))) {
             if let Some(Doc::Fig(f)) = self.docs.get(self.doc_sel).copied() {
                 self.fig_docs_closed.insert(f);
             }
@@ -1428,6 +1462,9 @@ impl eframe::App for MatApp {
             );
             match rc {
                 Some(RibbonCmd::NewScript) => self.new_editor_tab(None),
+                Some(RibbonCmd::Open) if self.workspace_files => {
+                    self.workspace_request = Some(FileRequest::Open);
+                }
                 Some(RibbonCmd::Open) =>
                 {
                     #[cfg(not(target_arch = "wasm32"))]
@@ -1435,11 +1472,7 @@ impl eframe::App for MatApp {
                         self.open_editor(&p);
                     }
                 }
-                Some(RibbonCmd::Save) => {
-                    if let Some(e) = self.cur_editor_mut() {
-                        e.save();
-                    }
-                }
+                Some(RibbonCmd::Save) => self.save_editor(),
                 Some(RibbonCmd::Run) => {
                     if let Some(e) = self.cur_editor() {
                         let dir = std::path::Path::new(&e.path).parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf());
@@ -1683,7 +1716,7 @@ impl eframe::App for MatApp {
                     if matches!(d, Doc::Fig(_)) && ui.small_button("↗").on_hover_text("pop out to a separate window").clicked() {
                         pop_fig = Some(i);
                     }
-                    if ui.small_button("x").on_hover_text("close tab").clicked() {
+                    if (!self.workspace_files || matches!(d, Doc::Fig(_))) && ui.small_button("x").on_hover_text("close tab").clicked() {
                         close_doc = Some(i);
                     }
                     ui.separator();
@@ -1712,6 +1745,7 @@ impl eframe::App for MatApp {
                             match c {
                                 EditorCmd::Run { source, dir, path, as_file } => self.run_editor_buffer(source, dir, path, as_file),
                                 EditorCmd::BpToggle { line, set } => self.toggle_breakpoint(&epath, line, set),
+                                EditorCmd::WorkspaceFile(request) => self.workspace_request = Some(request),
                                 EditorCmd::RunSelection => {}
                             }
                         }
