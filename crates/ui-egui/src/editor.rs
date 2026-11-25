@@ -339,7 +339,7 @@ impl Editor {
                             .min_size(egui::vec2(ui.available_width(), avail_h))
                             .lock_focus(true)
                             .layouter(&mut |ui, s, wrap| {
-                                let mut job = highlight_matches(s.as_str(), ui.visuals().text_color(), &matches, cur_match, pause_ln);
+                                let mut job = highlight_matches(s.as_str(), ui.visuals(), &matches, cur_match, pause_ln);
                                 job.wrap.max_width = wrap;
                                 ui.fonts_mut(|f| f.layout_job(job))
                             })
@@ -658,14 +658,14 @@ fn param_hint(name: &str, arg: usize, text: &str) -> Option<ParamHint> {
 /// a distinct amber.
 fn highlight_matches(
     text: &str,
-    default_color: egui::Color32,
+    visuals: &egui::Visuals,
     matches: &[(usize, usize)],
     cur: Option<(usize, usize)>,
     pause_line: Option<usize>,
 ) -> egui::text::LayoutJob {
-    let mut job = highlight(text, default_color);
+    let mut job = highlight(text, visuals);
     if matches.is_empty() {
-        paint_debug_line(&mut job.sections, text, pause_line);
+        paint_debug_line(&mut job.sections, text, pause_line, visuals.dark_mode);
         return job;
     }
     // Split sections at every match boundary, keeping each piece's format.
@@ -692,8 +692,11 @@ fn highlight_matches(
             first = false;
         }
     }
-    let mark = egui::Color32::from_rgb(0xFF, 0xEF, 0x9C);
-    let mark_cur = egui::Color32::from_rgb(0xF6, 0xC5, 0x5C);
+    let (mark, mark_cur) = if visuals.dark_mode {
+        (egui::Color32::from_rgb(67, 53, 30), egui::Color32::from_rgb(85, 62, 29))
+    } else {
+        (egui::Color32::from_rgb(0xFF, 0xEF, 0x9C), egui::Color32::from_rgb(0xF6, 0xC5, 0x5C))
+    };
     for &(a, b) in matches {
         let bg = if cur == Some((a, b)) { mark_cur } else { mark };
         for sec in secs.iter_mut().filter(|s| s.byte_range.start.0 >= a && s.byte_range.end.0 <= b) {
@@ -701,18 +704,18 @@ fn highlight_matches(
         }
     }
     job.sections = secs;
-    paint_debug_line(&mut job.sections, text, pause_line);
+    paint_debug_line(&mut job.sections, text, pause_line, visuals.dark_mode);
     job
 }
 
 /// Amber background on the debugger's stopped line (1-based; `None` = not
 /// paused) — distinct from the red breakpoint dots and paler find marks.
-fn paint_debug_line(secs: &mut [egui::text::LayoutSection], text: &str, pause_line: Option<usize>) {
+fn paint_debug_line(secs: &mut [egui::text::LayoutSection], text: &str, pause_line: Option<usize>, dark: bool) {
     let Some(ln) = pause_line else { return };
     let starts = line_start_offsets(text);
     let Some(&a) = starts.get(ln.saturating_sub(1)) else { return };
     let b = starts.get(ln).copied().unwrap_or(text.len());
-    let bg = egui::Color32::from_rgb(0xF7, 0xD7, 0x6B);
+    let bg = if dark { egui::Color32::from_rgb(87, 63, 28) } else { egui::Color32::from_rgb(0xF7, 0xD7, 0x6B) };
     for sec in secs.iter_mut().filter(|s| s.byte_range.start.0 >= a && s.byte_range.end.0 <= b) {
         sec.format.background = bg;
     }
@@ -721,13 +724,25 @@ fn paint_debug_line(secs: &mut [egui::text::LayoutSection], text: &str, pause_li
 /// Colour M-code into a `LayoutJob`: keywords blue, `%`/`...` comments
 /// green, `'…'` strings purple, numbers dark cyan. `'` after an operand
 /// char is a transpose, not a string start.
-fn highlight(text: &str, default_color: egui::Color32) -> egui::text::LayoutJob {
-    let font = egui::FontId::monospace(14.0);
-    let def = egui::text::TextFormat { font_id: font.clone(), color: default_color, ..Default::default() };
-    let kw = egui::text::TextFormat { font_id: font.clone(), color: egui::Color32::from_rgb(0, 0, 220), ..Default::default() };
-    let com = egui::text::TextFormat { font_id: font.clone(), color: egui::Color32::from_rgb(34, 139, 34), ..Default::default() };
-    let st = egui::text::TextFormat { font_id: font.clone(), color: egui::Color32::from_rgb(163, 21, 134), ..Default::default() };
-    let num = egui::text::TextFormat { font_id: font.clone(), color: egui::Color32::from_rgb(0, 110, 110), ..Default::default() };
+fn highlight(text: &str, visuals: &egui::Visuals) -> egui::text::LayoutJob {
+    use egui::Color32;
+    let format = |color| egui::text::TextFormat { font_id: egui::FontId::monospace(14.0), color, ..Default::default() };
+    let def = format(visuals.text_color());
+    let (kw, com, st, num) = if visuals.dark_mode {
+        (
+            format(Color32::from_rgb(146, 189, 255)),
+            format(Color32::from_rgb(144, 204, 137)),
+            format(Color32::from_rgb(241, 171, 231)),
+            format(Color32::from_rgb(119, 214, 214)),
+        )
+    } else {
+        (
+            format(Color32::from_rgb(0, 0, 220)),
+            format(Color32::from_rgb(34, 139, 34)),
+            format(Color32::from_rgb(163, 21, 134)),
+            format(Color32::from_rgb(0, 110, 110)),
+        )
+    };
     let mut job = egui::text::LayoutJob::default();
     for line in text.split_inclusive('\n') {
         let b = line.as_bytes();

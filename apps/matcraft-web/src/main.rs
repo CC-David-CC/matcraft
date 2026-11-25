@@ -35,6 +35,7 @@ mod web {
                         let mut app = MatApp::new(context, MatAppOptions::default());
                         if hosted {
                             app.enable_workspace_files(compact);
+                            MatApp::use_workspace_theme(&context.egui_ctx);
                             CONTEXT.with_borrow_mut(|slot| *slot = Some(context.egui_ctx.clone()));
                         }
                         Ok(Box::new(app))

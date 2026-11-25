@@ -70,25 +70,38 @@ pub fn studio_visuals() -> egui::Visuals {
     v
 }
 
+/// Use the theme detected for the embedded browser canvas.
+pub fn use_system_theme(ctx: &egui::Context) {
+    let mut dark = egui::Visuals::dark();
+    dark.panel_fill = egui::Color32::from_rgb(32, 38, 48);
+    dark.window_fill = dark.panel_fill;
+    dark.extreme_bg_color = egui::Color32::from_rgb(22, 27, 35);
+    dark.hyperlink_color = egui::Color32::from_rgb(120, 187, 245);
+    ctx.set_visuals_of(egui::Theme::Light, studio_visuals());
+    ctx.set_visuals_of(egui::Theme::Dark, dark);
+    ctx.set_theme(egui::ThemePreference::System);
+}
+
 /// The accent blue used for active tabs and links (MatCraft teal-blue).
-pub const ACCENT: egui::Color32 = egui::Color32::from_rgb(0x00, 0x72, 0xBD);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(0x00, 0x72, 0xBD);
 
 /// The tab strip — a row of tab captions plus the open tab's ribbon.
 /// `sel_var` is the Workspace selection; `has_editor` whether the raised
 /// document is an editor buffer.
 pub fn ui(ui: &mut egui::Ui, tab: &mut Tab, sel_var: Option<&str>, has_editor: bool, view: &mut ViewFlags<'_>) -> Option<RibbonCmd> {
     let mut cmd = None;
+    let accent = ui.visuals().hyperlink_color;
     // Tab captions — active tab gets the accent underline, MATLAB-style.
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 14.0;
         ui.add_space(6.0);
         for (t, label) in [(Tab::Home, "HOME"), (Tab::Plots, "PLOTS"), (Tab::Editor, "EDITOR"), (Tab::View, "VIEW")] {
             let active = *tab == t;
-            let text = if active { egui::RichText::new(label).strong().color(ACCENT) } else { egui::RichText::new(label) };
+            let text = if active { egui::RichText::new(label).strong().color(accent) } else { egui::RichText::new(label) };
             let resp = ui.add(egui::Label::new(text).sense(egui::Sense::click()));
             if active {
                 let r = resp.rect;
-                ui.painter().hline(r.left()..=r.right(), r.bottom() + 1.0, egui::Stroke::new(2.0, ACCENT));
+                ui.painter().hline(r.left()..=r.right(), r.bottom() + 1.0, egui::Stroke::new(2.0, accent));
             }
             if resp.clicked() {
                 *tab = t;

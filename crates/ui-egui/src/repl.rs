@@ -278,7 +278,7 @@ impl Repl {
                 &self.scrollback
             };
             let links = find_links(tail);
-            let mut job = scrollback_job(tail, ui.visuals().text_color(), &links);
+            let mut job = scrollback_job(tail, ui.visuals(), &links);
             job.wrap.max_width = ui.available_width();
             let galley = ui.fonts_mut(|f| f.layout_job(job));
             let resp = ui.add(egui::Label::new(galley.clone()).selectable(true));
@@ -372,11 +372,15 @@ fn link_rects(galley: &egui::Galley, galley_pos: egui::Pos2, row_starts: &[usize
 /// (indented continuation lines stay red), `Warning …` in dark orange, the
 /// rest in the default text colour. [`FileLink`] spans are drawn as blue
 /// underlined hyperlinks like MATLAB's `file (line n)` error links.
-fn scrollback_job(text: &str, default_color: egui::Color32, links: &[FileLink]) -> egui::text::LayoutJob {
+fn scrollback_job(text: &str, visuals: &egui::Visuals, links: &[FileLink]) -> egui::text::LayoutJob {
     let font = egui::FontId::monospace(13.0);
-    let err = egui::Color32::from_rgb(0xB0, 0x00, 0x00);
-    let warn = egui::Color32::from_rgb(0xB4, 0x5F, 0x06);
-    let link_color = egui::Color32::from_rgb(0x00, 0x72, 0xBD);
+    let (err, warn) = if visuals.dark_mode {
+        (egui::Color32::from_rgb(255, 145, 145), egui::Color32::from_rgb(248, 193, 121))
+    } else {
+        (egui::Color32::from_rgb(0xB0, 0x00, 0x00), egui::Color32::from_rgb(0xB4, 0x5F, 0x06))
+    };
+    let default_color = visuals.text_color();
+    let link_color = visuals.hyperlink_color;
     let link_fmt =
         egui::text::TextFormat { font_id: font.clone(), color: link_color, underline: egui::Stroke::new(1.0, link_color), ..Default::default() };
     let mut job = egui::text::LayoutJob::default();
@@ -472,7 +476,7 @@ mod tests {
     fn scrollback_job_marks_links() {
         let t = "Error in foo.m (line 5)\n";
         let links = find_links(t);
-        let job = scrollback_job(t, egui::Color32::BLACK, &links);
+        let job = scrollback_job(t, &crate::ribbon::studio_visuals(), &links);
         // The `foo.m` span is a separate, underlined section.
         let link_sec = job.sections.iter().find(|s| &t[s.byte_range.start.0..s.byte_range.end.0] == "foo.m");
         assert!(link_sec.is_some());

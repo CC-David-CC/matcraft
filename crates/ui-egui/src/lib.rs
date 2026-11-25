@@ -252,6 +252,11 @@ impl MatApp {
         app
     }
 
+    /// Follow the WebOS browser workspace theme.
+    pub fn use_workspace_theme(ctx: &egui::Context) {
+        ribbon::use_system_theme(ctx);
+    }
+
     /// Build the app without an eframe context — for tests and tools.
     pub fn with_options(opts: MatAppOptions) -> Self {
         let mut app = MatApp {
@@ -1705,7 +1710,7 @@ impl eframe::App for MatApp {
                         // Accent underline under the raised tab, like the
                         // desktop's document bar.
                         let r = resp.rect;
-                        ui.painter().hline(r.left() + 2.0..=r.right() - 2.0, r.bottom(), egui::Stroke::new(2.0, ribbon::ACCENT));
+                        ui.painter().hline(r.left() + 2.0..=r.right() - 2.0, r.bottom(), egui::Stroke::new(2.0, ui.visuals().hyperlink_color));
                     }
                     if resp.clicked() {
                         self.doc_sel = i;
