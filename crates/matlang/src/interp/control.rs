@@ -855,7 +855,7 @@ impl Session {
                         let z = h.get(out.saturating_mul(m).saturating_add(inp)).copied().unwrap_or(CNum::real(0.0));
                         let idx = k.saturating_mul(p).saturating_mul(m).saturating_add(inp.saturating_mul(p)).saturating_add(out);
                         if let Some(slot) = mag.get_mut(idx) {
-                            *slot = (z.re * z.re + z.im * z.im).sqrt();
+                            *slot = z.abs();
                         }
                         if let Some(slot) = phase.get_mut(idx) {
                             *slot = z.im.atan2(z.re).to_degrees();
@@ -874,7 +874,7 @@ impl Session {
         for &wi in &w {
             let jw = CNum::new(0.0, wi);
             let h = polyval_c(&num, jw).div(polyval_c(&den, jw));
-            mag.push((h.re * h.re + h.im * h.im).sqrt());
+            mag.push(h.abs());
             phase.push(h.im.atan2(h.re).to_degrees());
         }
         let wrap = |v: Vec<f64>| if column { Value::Mat(Matrix::col_vector(v)) } else { Value::Mat(Matrix::row_vector(v)) };
